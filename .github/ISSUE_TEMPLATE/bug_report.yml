@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem with Nexus Admin Tools.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Before submitting, check whether the issue is already open. Remove IP addresses, passwords, world identifiers, and other private details from logs.
+  - type: input
+    id: mod-version
+    attributes:
+      label: Nexus Admin Tools version
+      placeholder: 1.8.2
+    validations:
+      required: true
+  - type: input
+    id: game-version
+    attributes:
+      label: Valheim version
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Multiplayer environment
+      options:
+        - Single-player
+        - Hosted co-op
+        - Dedicated server
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Client and server setup
+      description: For multiplayer, include whether Nexus Admin Tools versions match on the server and all clients.
+      placeholder: Include relevant mod versions and server/client details.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. Open the Admin page…
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpt
+      description: Include only the lines related to this issue. Redact private information before posting.
+      render: text
+    validations:
+      required: false

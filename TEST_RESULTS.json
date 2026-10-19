@@ -1,0 +1,61 @@
+{
+  "version": "1.8.2",
+  "date": "2026-10-19",
+  "status": "compiled_candidate_not_game_tested",
+  "build": {
+    "configuration": "Release",
+    "target": "netstandard2.1",
+    "errors": 0,
+    "warnings": 2,
+    "warning_codes": ["MSB3277"]
+  },
+  "checks": {
+    "admin_protocol_clock_replay": {"passed": true, "assertions": 2934},
+    "dedicated_cleanup_production_handler": {"passed": true, "assertions": 57, "live_network": false},
+    "favorites": {"passed": true, "assertions": 16},
+    "persistence_and_kit_transfer": {
+      "passed": true,
+      "scenarios": [
+        "Format 2 compatibility",
+        "100 rows round trip",
+        "9999 per-row boundary",
+        "101 rows rejected",
+        "10000 per-row rejected"
+      ]
+    },
+    "namekeeper_item_capture": {
+      "passed": true,
+      "assertions": 15,
+      "scenarios": ["second rename", "reset to default", "kit stamping clears stale Namekeeper markers"]
+    },
+    "source_regressions": {"passed": true, "tests": 31},
+    "compiled_authorization_transport_and_world_actions": {"passed": true, "assertions": 112, "live_network": false},
+    "installed_game_api_contracts": {
+      "passed": true,
+      "assertions": 10,
+      "assembly_valheim_sha256": "94998885B103D6E5F5480123EAEE0A093E82AF2DDEEEE37536C15BF555F24F3A"
+    },
+    "thunderstore_manifest_dependencies": {
+      "passed": true,
+      "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2351",
+        "ValheimModding-Jotunn-2.30.2"
+      ]
+    }
+  },
+  "review": {
+    "layout": "Source reviewed at 1100x860 units for 2560x1440 at normal Valheim UI scale. Admin commands and setting controls use fixed layouts and page buttons; catalogues and kit item list retain scroll.",
+    "runtime_ui_rendered": false,
+    "world_locations": "Server uses ZoneSystem.GetLocationList after LocationsGenerated and includes generated unique positions even when their zones have not been loaded. Shared custom teleport points and Nexus-only location name overrides are stored per world on the server. Add-point coordinates come from the authenticated server-side player position.",
+    "network_cleanup": "Server validates client ZDO hints and dispatches per current owner; owner checks server RPC, current ownership, radius and protected categories. Status counts dispatched commands, not confirmed deaths.",
+    "kit_limit": "Kit application remains limited to 1000 total units by user choice.",
+    "weather_fix": "Repeated arrow presses cycle from the latest server value and wrap through the full environment list.",
+    "location_fix": "The generated-location list includes all generated unique positions across the world, including zones not loaded by a player. Custom points and Nexus-only renames are shared and persisted per world."
+  },
+  "game_launched": false,
+  "live_multiplayer_tested": false,
+  "game_profile_modified": false,
+  "worlds_modified": false,
+  "characters_modified": false,
+  "pending_manual_plan": "TEST_PLAN_1.8.2_RU.md"
+}

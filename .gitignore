@@ -1,0 +1,11 @@
+/audit/
+/.dotnet-cli-home/
+/dist/
+/src/bin/
+/src/obj/
+/tests/**/bin/
+/tests/**/obj/
+/tests/**/TestResults/
+/tests/__pycache__/
+*.user
+*.suo

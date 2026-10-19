@@ -1,0 +1,51 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Verify version and release package hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.version_number' manifest.json)"
+          EXPECTED_TAG="v${VERSION}"
+          if [[ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest version $VERSION" >&2
+            exit 1
+          fi
+
+          THUNDERSTORE="release-assets/Nexus-Admin-Tools-Thunderstore-${VERSION}.zip"
+          SOURCE="release-assets/Nexus-Admin-Tools-Source-${VERSION}.zip"
+          test -f "$THUNDERSTORE"
+          test -f "$SOURCE"
+          test -f release-assets/SHA256SUMS.txt
+
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+          PACKAGE_VERSION="$(unzip -p "$THUNDERSTORE" manifest.json | jq -r '.version_number')"
+          test "$PACKAGE_VERSION" = "$VERSION"
+
+      - name: Publish release with install and source archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="$(jq -r '.version_number' manifest.json)"
+          gh release create "$GITHUB_REF_NAME" \
+            "release-assets/Nexus-Admin-Tools-Thunderstore-${VERSION}.zip" \
+            "release-assets/Nexus-Admin-Tools-Source-${VERSION}.zip" \
+            release-assets/SHA256SUMS.txt \
+            --verify-tag \
+            --title "Nexus Admin Tools ${VERSION}" \
+            --generate-notes

@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  game-independent-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run C# regression suites
+        shell: pwsh
+        run: |
+          $projects = @(
+            'tests/AdminRules.Tests.csproj',
+            'tests/Cleanup.Tests.csproj',
+            'tests/FavoriteIds.Tests.csproj',
+            'tests/NexusAdvancedPersistence.Tests.csproj',
+            'tests/NexusItemTextRules.Tests.csproj'
+          )
+          foreach ($project in $projects) {
+            dotnet run --project $project --configuration Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Run source regression checks
+        shell: pwsh
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
