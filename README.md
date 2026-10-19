@@ -33,6 +33,3 @@ See the full [changelog](https://github.com/supernova47/Nexus-Admin-Tools/blob/m
 
 The Thunderstore package is a ZIP with `manifest.json`, `README.md`, and a 256×256 `icon.png` at its root. The plugin DLL is installed under `BepInEx/plugins/ValheimSpawner`. Use the same release on the server and every client because the network protocol requires a matching version.
 
-## Building and releasing
-
-Build the plugin on Windows with Valheim, BepInEx, Jötunn, and the .NET SDK installed by running `BuildMod.ps1`. The build references the game assemblies installed on that machine. Push the matching versioned package files from `release-assets/` and a tag such as `v1.8.2`; GitHub Actions verifies the tag, manifest version, and package checksums, then publishes a GitHub Release automatically. The public repository uses GitHub-hosted runners; it does not run untrusted pull requests on a self-hosted machine.
