@@ -9,13 +9,13 @@ New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $target = [IO.Path]::GetFullPath((Join-Path $dist "Nexus-Admin-Tools-Source-$version.zip"))
 if (-not $target.StartsWith($dist + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe output path' }
 $files = @(Get-ChildItem -LiteralPath $root -File | Where-Object {
-    ($_.Extension -in @('.md','.ps1','.bat','.png','.json','.yml','.yaml') -or $_.Name -eq '.gitignore') -and
+    ($_.Extension -in @('.md','.ps1','.bat','.png','.json','.yml','.yaml') -or $_.Name -in @('.gitignore','LICENSE')) -and
     $_.Name -notin @('VALIDATION.json','HudPreviewValidation.json','HudPreview.png')
 })
 foreach ($folder in @('src','tests','package_template')) {
     $files += @(Get-ChildItem -LiteralPath (Join-Path $root $folder) -Recurse -File | Where-Object {
         $_.FullName -notmatch '[\\/](bin|obj|__pycache__)[\\/]' -and
-        $_.Extension -in @('.cs','.csproj','.ps1','.py','.json','.md','.png','.yml','.yaml')
+        $_.Extension -in @('.cs','.csproj','.ps1','.py','.json','.md','.png','.yml','.yaml') -or $_.Name -eq 'LICENSE'
     })
 }
 if (Test-Path -LiteralPath (Join-Path $root '.github')) {

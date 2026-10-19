@@ -1,8 +1,8 @@
 {
   "name": "Nexus_Admin_Tools",
-  "version_number": "1.8.2",
+  "version_number": "1.8.7",
   "website_url": "https://github.com/supernova47/Nexus-Admin-Tools",
-  "description": "Valheim admin tools. Bugs: https://github.com/supernova47/Nexus-Admin-Tools/issues | Reviews/comments: https://github.com/supernova47/Nexus-Admin-Tools/discussions",
+  "description": "Valheim admin tools (MIT). Bugs: https://github.com/supernova47/Nexus-Admin-Tools/issues | Reviews/comments: https://github.com/supernova47/Nexus-Admin-Tools/discussions",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2351",
     "ValheimModding-Jotunn-2.30.2"

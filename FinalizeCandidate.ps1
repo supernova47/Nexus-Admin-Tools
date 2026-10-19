@@ -35,7 +35,7 @@ $validation = [ordered]@{
     checks=$testResults; packages=$packages;
     package_validation='passed'; game_launched=$false; game_profile_modified=$false; worlds_modified=$false;
     characters_modified=$false; live_multiplayer_tested=$false;
-    manual_test_plan='TEST_PLAN_1.8.2_RU.md'
+    manual_test_plan='TEST_PLAN_1.8.7_RU.md'
 }
 $validation | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $root 'VALIDATION.json') -Encoding utf8
 $sums | Set-Content -LiteralPath (Join-Path $root 'dist\SHA256SUMS.txt') -Encoding utf8

@@ -16,7 +16,7 @@ namespace SuperNova.ValheimSpawner
     {
         public const string PluginGuid = "com.supernova.valheimspawner";
         public const string PluginName = "Nexus Admin Tools";
-        public const string PluginVersion = "1.8.2";
+        public const string PluginVersion = "1.8.7";
 
         // Extended quality cap for upgradeable equipment, including weapons and shields.
         private const int ExtendedNonWeaponQualityCap = 10;
@@ -177,6 +177,7 @@ namespace SuperNova.ValheimSpawner
         private object _objectDbInstance;
         private object _lastObjectDb;
         private bool _isOpen;
+        private bool _inventoryVisibleLastFrame;
         private bool _searchHasFocus;
         private bool _nameHasFocus;
         private bool _killIncludeTamed;
@@ -241,6 +242,7 @@ namespace SuperNova.ValheimSpawner
             _zNetViewType = FindType("ZNetView");
             _activeInstance = this;
             InstallInputGuards();
+            InstallInventoryTrashPatch();
             InstallNetworkPatches();
             InstallWorldAdminPatches();
             InstallAdminPatches();
@@ -254,6 +256,7 @@ namespace SuperNova.ValheimSpawner
         private void Update()
         {
             RefreshGameReferences();
+            TickTrashContext();
             TickNetwork();
             TickNativeHud();
             if (_toggleKey != null && _toggleKey.Value != KeyCode.None && Input.GetKeyDown(_toggleKey.Value))
@@ -274,7 +277,10 @@ namespace SuperNova.ValheimSpawner
             {
                 if (Input.GetKeyDown(KeyCode.Escape))
                 {
-                    SetOpen(false);
+                    // InventoryGui may process Escape earlier in this frame. Keep a
+                    // LateUpdate snapshot so that one press never closes both windows.
+                    if (NativeInventoryIsVisible() || _inventoryVisibleLastFrame) HideNativeInventory();
+                    else SetOpen(false);
                     return;
                 }
 
@@ -298,8 +304,11 @@ namespace SuperNova.ValheimSpawner
         private void LateUpdate()
         {
             UpdateWorldSpawnMarkers();
+            _inventoryVisibleLastFrame = NativeInventoryIsVisible();
+            if (_playerReturnPrompt != null && _playerReturnPrompt.activeInHierarchy)
+                _playerReturnPrompt.transform.SetAsLastSibling();
             // Valheim's camera may recapture the mouse after Update. Keep it released while our HUD is open.
-            if (_isOpen)
+            if (_isOpen || (_playerReturnPrompt != null && _playerReturnPrompt.activeInHierarchy))
             {
                 Cursor.visible = true;
                 Cursor.lockState = CursorLockMode.None;
@@ -2660,9 +2669,18 @@ namespace SuperNova.ValheimSpawner
             return _activeInstance != null && (_activeInstance._isOpen || Time.unscaledTime < _activeInstance._suppressInputUntil);
         }
 
-        private static bool BlockBooleanInputPrefix(ref bool __result)
+        private static bool BlockBooleanInputPrefix(ref bool __result, MethodBase __originalMethod, object[] __args)
         {
-            if (!ShouldBlockGameInput()) return true;
+            ValheimSpawnerPlugin mod = _activeInstance;
+            if (mod == null) return true;
+            // Keep inventory input independent of the HUD and reserve closing it for Escape.
+            if (mod.NativeInventoryIsVisible() && IsInventoryCloseShortcut(__originalMethod, __args))
+            {
+                __result = false;
+                return false;
+            }
+            if (!mod._isOpen && Time.unscaledTime >= mod._suppressInputUntil) return true;
+            if (mod._isOpen && mod.ShouldAllowHudInventoryInput(__originalMethod, __args)) return true;
             __result = false;
             return false;
         }
@@ -2675,6 +2693,7 @@ namespace SuperNova.ValheimSpawner
         private static bool BlockMouseScrollWheelPrefix(ref float __result)
         {
             if (!ShouldBlockGameInput()) return true;
+            if (_activeInstance != null && _activeInstance._isOpen && _activeInstance.NativeInventoryIsVisible()) return true;
             __result = 0f;
             return false;
         }

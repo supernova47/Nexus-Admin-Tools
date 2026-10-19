@@ -11,8 +11,11 @@ namespace SuperNova.ValheimSpawner
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Patch)]
     public sealed partial class ValheimSpawnerPlugin
     {
-        private const string RequestRpc = "SN_Nexus_Request181", ReplyRpc = "SN_Nexus_Reply181";
-        private enum AdminAction { Poll, Local, Time, Spawn, Cleanup, Weather, Raids, Locations, Teleport, Return, Audit, AddLocation, RenameLocation, DeleteLocation }
+        private const string RequestRpc = "SN_Nexus_Request185", ReplyRpc = "SN_Nexus_Reply185";
+        private const string TargetCommandRpc = "SN_Nexus_Target185";
+        private enum AdminAction { Poll, Local, Time, Spawn, Cleanup, Weather, Raids, Locations, Teleport, Return, Audit, AddLocation, RenameLocation, DeleteLocation,
+            PlayerRoster, TeleportToPlayer, TeleportPlayerHere, KickPlayer, BanPlayer, UnbanPlayer, FreezePlayer, ClearDroppedItems, PlayerReturn,
+            PlayerReturnDismiss }
         private sealed class PeerState
         {
             internal readonly AdminRequestGate Gate = new AdminRequestGate();
@@ -30,6 +33,7 @@ namespace SuperNova.ValheimSpawner
         private readonly Dictionary<ZRpc, PeerState> _peerStates = new Dictionary<ZRpc, PeerState>();
         private readonly Dictionary<int, PendingAction> _pendingActions = new Dictionary<int, PendingAction>();
         private readonly HashSet<ZDOID> _networkGhosts = new HashSet<ZDOID>();
+        private readonly HashSet<ZDOID> _networkFrozenCharacters = new HashSet<ZDOID>();
         private ZNet _networkSession;
         private ZRpc _serverConnection;
         private float _nextNetworkPoll, _accessUntil, _ghostSnapshotUntil;
@@ -48,6 +52,15 @@ namespace SuperNova.ValheimSpawner
                 new HarmonyMethod(typeof(ValheimSpawnerPlugin), nameof(GhostModePostfix)));
             _harmony.Patch(AccessTools.Method(typeof(BaseAI), "IsEnemy", new[] { typeof(Character), typeof(Character) }), postfix:
                 new HarmonyMethod(typeof(ValheimSpawnerPlugin), nameof(GhostEnemyPostfix)));
+            var walking = AccessTools.Method(typeof(Character), "UpdateWalking", new[] { typeof(float) });
+            if (walking != null) _harmony.Patch(walking, prefix:
+                new HarmonyMethod(typeof(ValheimSpawnerPlugin), nameof(FrozenWalkingPrefix)));
+            var jump = AccessTools.Method(typeof(Character), "Jump", new[] { typeof(bool) });
+            if (jump != null) _harmony.Patch(jump, prefix:
+                new HarmonyMethod(typeof(ValheimSpawnerPlugin), nameof(FrozenJumpPrefix)));
+            var dodge = AccessTools.Method(typeof(Player), "Dodge", new[] { typeof(Vector3) });
+            if (dodge != null) _harmony.Patch(dodge, prefix:
+                new HarmonyMethod(typeof(ValheimSpawnerPlugin), nameof(FrozenDodgePrefix)));
         }
 
         private static void ConnectionPostfix(ZNetPeer __0) => _activeInstance?.RegisterPeer(__0);
@@ -59,6 +72,7 @@ namespace SuperNova.ValheimSpawner
             peer.m_rpc.Register<ZPackage>(RequestRpc, ReceiveRequest);
             peer.m_rpc.Register<ZPackage>(ReplyRpc, ReceiveReply);
             peer.m_rpc.Register<ZPackage>(CleanupOwnerRpc, ReceiveOwnerCleanup);
+            peer.m_rpc.Register<ZPackage>(TargetCommandRpc, ReceiveTargetCommand);
         }
 
         private ZNetPeer AuthenticatedAdmin(ZRpc rpc)
@@ -79,14 +93,16 @@ namespace SuperNova.ValheimSpawner
                 if (net != null) foreach (var peer in net.GetPeers()) RegisterPeer(peer);
             }
             if (net == null) { TickAdminPreferences(); return; }
-            if (net.IsServer()) EnsureServerAdminState();
-            if (!net.IsServer() && Time.unscaledTime >= _ghostSnapshotUntil) _networkGhosts.Clear();
+            if (net.IsServer()) { EnsureServerAdminState(); PruneDisconnectedFrozenPlayers(); TickTimedBans(); }
+            if (!net.IsServer() && Time.unscaledTime >= _ghostSnapshotUntil)
+            { _networkGhosts.Clear(); _networkFrozenCharacters.Clear(); }
             var server = net.IsServer() ? null : net.GetServerPeer()?.m_rpc;
             if (!ReferenceEquals(server, _serverConnection))
             {
                 _accessUntil = 0;
                 _pendingActions.Clear();
                 _networkGhosts.Clear();
+                _networkFrozenCharacters.Clear();
                 _serverConnection = server;
                 _nextNetworkPoll = 0;
             }
@@ -116,6 +132,11 @@ namespace SuperNova.ValheimSpawner
             _pendingActions.Clear();
             _peerStates.Clear();
             _networkGhosts.Clear();
+            _networkFrozenCharacters.Clear();
+            _serverFrozenPlayers.Clear();
+            _targetLocalFrozen = false;
+            _playerReturnAvailable = _returnAvailable = false;
+            DestroyPlayerReturnPrompt();
             _nextRequestId = 0;
             _nextNetworkPoll = 0;
             SuspendAdminEffects();
@@ -169,9 +190,29 @@ namespace SuperNova.ValheimSpawner
             if (!__0.IsPlayer() && mod.IsNexusGhost(__1)) __result = false;
         }
 
-        private void SendRequest(AdminAction kind, Action<ZPackage> write, Action<ZPackage> callback)
+        private static void FrozenWalkingPrefix(Character __instance)
         {
-            if (_serverConnection == null || _pendingActions.Count >= 8) return;
+            var mod = _activeInstance;
+            if (mod == null || !mod.IsNexusFrozen(__instance)) return;
+            __instance.SetMoveDir(Vector3.zero);
+            TrySetBoolMember(__instance, "m_run", false);
+            TrySetBoolMember(__instance, "m_running", false);
+            if (ReadMember(__instance, "m_body") is Rigidbody body)
+            {
+                Vector3 velocity = body.linearVelocity;
+                body.linearVelocity = new Vector3(0f, velocity.y, 0f);
+            }
+        }
+
+        private static bool FrozenJumpPrefix(Character __instance) =>
+            _activeInstance == null || !_activeInstance.IsNexusFrozen(__instance);
+
+        private static bool FrozenDodgePrefix(Player __instance) =>
+            _activeInstance == null || !_activeInstance.IsNexusFrozen(__instance);
+
+        private bool SendRequest(AdminAction kind, Action<ZPackage> write, Action<ZPackage> callback)
+        {
+            if (_serverConnection == null || _pendingActions.Count >= 8) return false;
             int id = ++_nextRequestId;
             var packet = new ZPackage(); packet.Write(AdminRules.Protocol); packet.Write(id); packet.Write((int)kind);
             write?.Invoke(packet);
@@ -179,6 +220,7 @@ namespace SuperNova.ValheimSpawner
                 Until = Time.unscaledTime + (kind == AdminAction.Poll ? 2f : 6f), Callback = callback };
             _serverConnection.Invoke(RequestRpc, packet);
             if (kind != AdminAction.Poll) _status = T("Waiting for server…", "Ожидание сервера…");
+            return true;
         }
 
         private void ReceiveRequest(ZRpc rpc, ZPackage packet)
@@ -219,9 +261,16 @@ namespace SuperNova.ValheimSpawner
                     var playerZdo = ZDOMan.instance?.GetZDO(connected.m_characterID);
                     string detail;
                     ok = ExecuteServerAction(kind, packet, playerZdo?.GetPosition() ?? connected.GetRefPos(), connected.m_uid, out message, out detail, out replyExtra);
-                    if (kind != AdminAction.Locations && kind != AdminAction.Audit)
+                    if (kind != AdminAction.Locations && kind != AdminAction.Audit && kind != AdminAction.PlayerRoster)
                         AppendAdminAudit(connected.m_playerName, connected.m_uid, detail ?? kind.ToString(), ok ? "OK" : (message ?? "rejected"));
                     Logger.LogInfo("Nexus admin action: peer=" + connected.m_uid + " action=" + kind + " success=" + ok);
+                }
+                else if (kind == AdminAction.PlayerReturn || kind == AdminAction.PlayerReturnDismiss)
+                {
+                    var playerZdo = ZDOMan.instance?.GetZDO(connected.m_characterID);
+                    string detail;
+                    ok = ExecuteServerAction(kind, packet, playerZdo?.GetPosition() ?? connected.GetRefPos(), connected.m_uid,
+                        out message, out detail, out replyExtra);
                 }
                 ReplyToRequest(rpc, id, kind, granted, ok, message, replyExtra);
             }
@@ -234,6 +283,9 @@ namespace SuperNova.ValheimSpawner
             reply.Write(granted); reply.Write(ok); reply.Write(message);
             reply.Write(_networkGhosts.Count);
             foreach (var ghost in _networkGhosts) reply.Write(ghost);
+            var frozenCharacters = GetFrozenCharacterIds();
+            reply.Write(frozenCharacters.Count);
+            foreach (var character in frozenCharacters) reply.Write(character);
             reply.Write(_serverForcedWeather ?? string.Empty); reply.Write(_serverRaidsDisabled);
             replyExtra?.Invoke(reply);
             rpc.Invoke(ReplyRpc, reply);
@@ -253,20 +305,25 @@ namespace SuperNova.ValheimSpawner
                 int count = packet.ReadInt(); if (count < 0 || count > 256) return;
                 var ghosts = new HashSet<ZDOID>();
                 for (int i = 0; i < count; i++) ghosts.Add(packet.ReadZDOID());
+                int frozenCount = packet.ReadInt(); if (frozenCount < 0 || frozenCount > 256) return;
+                var frozenCharacters = new HashSet<ZDOID>();
+                for (int i = 0; i < frozenCount; i++) frozenCharacters.Add(packet.ReadZDOID());
                 string weather = packet.ReadString(); bool raidsDisabled = packet.ReadBool();
                 _pendingActions.Remove(id); // Consume before executing any callback.
                 _accessUntil = granted ? Time.unscaledTime + 2.5f : 0;
                 _ghostSnapshotUntil = Time.unscaledTime + 3f;
                 _networkGhosts.Clear(); foreach (var ghost in ghosts) _networkGhosts.Add(ghost);
+                _networkFrozenCharacters.Clear(); foreach (var character in frozenCharacters) _networkFrozenCharacters.Add(character);
                 ApplySyncedWorldAdminState(weather, raidsDisabled);
-                if (!granted) { _pendingActions.Clear(); SuspendAdminEffects(); _status = T("Administrator access required.", "Нужны права администратора сервера."); return; }
+                if (!granted && kind != AdminAction.PlayerReturn && kind != AdminAction.PlayerReturnDismiss)
+                { _pendingActions.Clear(); SuspendAdminEffects(); _status = T("Administrator access required.", "Нужны права администратора сервера."); return; }
                 if (kind != AdminAction.Poll)
                 {
                     _status = string.IsNullOrEmpty(message) ? (ok ? T("Server action completed.", "Сервер выполнил действие.") :
                         T("Action rejected.", "Действие отклонено.")) : FormatServerMessage(message);
                     if (ok && pending.Callback != null)
                     {
-                        _executingApprovedLocal = true;
+                        _executingApprovedLocal = granted;
                         try { pending.Callback(packet); } finally { _executingApprovedLocal = false; }
                     }
                 }
@@ -286,6 +343,29 @@ namespace SuperNova.ValheimSpawner
             if (_pendingActions.Values.Any(p => p.Kind != AdminAction.Poll)) return false;
             SendRequest(AdminAction.Local, p => p.Write(detail ?? "local admin action"), _ => retry());
             return false;
+        }
+
+        private void RecordLocalAdminAction(string detail)
+        {
+            if (!HasAdminAccess || ZNet.instance == null || !AdminRules.AdminDetail(detail)) return;
+            Player local = Player.m_localPlayer;
+            if (local == null) return;
+            if (ZNet.instance.IsServer())
+            {
+                AppendAdminAudit(local.GetPlayerName(), local.GetPlayerID(), detail, "OK");
+                return;
+            }
+            if (_serverConnection == null) return;
+            try
+            {
+                var packet = new ZPackage();
+                packet.Write(AdminRules.Protocol);
+                packet.Write(++_nextRequestId);
+                packet.Write((int)AdminAction.Local);
+                packet.Write(detail);
+                _serverConnection.Invoke(RequestRpc, packet);
+            }
+            catch (Exception ex) { Logger.LogDebug("Could not send the local admin action audit entry: " + ex.Message); }
         }
 
         private bool ExecuteServerAction(AdminAction kind, ZPackage packet, Vector3 origin, long adminUid, out string message,
@@ -346,6 +426,16 @@ namespace SuperNova.ValheimSpawner
             if (kind == AdminAction.AddLocation) return ExecuteAddTeleportPoint(origin, packet, out message, out auditDetail);
             if (kind == AdminAction.RenameLocation) return ExecuteRenameTeleportPoint(packet, out message, out auditDetail);
             if (kind == AdminAction.DeleteLocation) return ExecuteDeleteTeleportPoint(packet, out message, out auditDetail);
+            if (kind == AdminAction.PlayerRoster) return WriteAdminPlayerPage(packet, out message, out replyExtra);
+            if (kind == AdminAction.TeleportToPlayer) return ExecuteTeleportToPlayer(packet, origin, adminUid, out message, out auditDetail, out replyExtra);
+            if (kind == AdminAction.TeleportPlayerHere) return ExecuteTeleportPlayerHere(packet, origin, adminUid, out message, out auditDetail);
+            if (kind == AdminAction.KickPlayer) return ExecuteKickPlayer(packet, adminUid, out message, out auditDetail);
+            if (kind == AdminAction.BanPlayer) return ExecuteBanPlayer(packet, adminUid, out message, out auditDetail);
+            if (kind == AdminAction.UnbanPlayer) return ExecuteUnbanPlayer(packet, out message, out auditDetail);
+            if (kind == AdminAction.FreezePlayer) return ExecuteFreezePlayer(packet, adminUid, out message, out auditDetail);
+            if (kind == AdminAction.ClearDroppedItems) return ExecuteClearDroppedItems(out message, out auditDetail);
+            if (kind == AdminAction.PlayerReturn) return ExecutePlayerReturn(adminUid, out message, out auditDetail, out replyExtra);
+            if (kind == AdminAction.PlayerReturnDismiss) return ExecuteDismissPlayerReturn(adminUid, out message, out auditDetail);
             return false;
         }
 

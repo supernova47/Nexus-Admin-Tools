@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.8.7 — October 19, 2026
+
+- Rendered the cursor-held item above the Nexus HUD while keeping the trash drop target reachable.
+- Made trash removal immediate after the recent server-issued admin grant; the audit entry is sent asynchronously so repeated drops are not delayed by a round trip.
+- Kept network protocol 185 unchanged.
+
+## 1.8.6 — October 19, 2026
+
+- Made the Nexus HUD and Valheim inventory independent. With both open, the inventory remains interactive and the HUD can be dragged above it; Tab opens the inventory and Escape closes it before a second Escape closes the HUD.
+- Kept the HUD toggle key and close button available while the inventory is open.
+- Kept the return-point notice above other windows, enabled its buttons for the affected player without requiring admin access, and remove the saved point after the server confirms dismissal.
+- Preserved the network protocol because this update changes local UI input and ordering only.
+
+## 1.8.5 — October 19, 2026
+
+- The native inventory can now be opened and closed while the Nexus HUD is active. The inventory shortcut and Escape key preserve the HUD, so players can reposition the window and drag items into the trash.
+- Added a close control to the administrator return-point notification. Closing it dismisses and removes that player's saved return point on the server.
+- Fixed dropped-item cleanup on dedicated servers by transferring each matching network object to the server before queuing its replicated deletion. The HUD now reports the number queued instead of claiming that every item has already disappeared.
+- Bumped the network protocol to 185. Install Nexus Admin Tools 1.8.5 on the server and every client.
+
+## 1.8.4 — October 19, 2026
+
+- Added a personal maximum carry weight setting. Its value and enabled state are saved per world and character and restored only after administrator access is confirmed.
+- Added an **Admin → Players** page with an online player list, teleport-to-player and bring-player actions, kick, permanent bans, timed bans in hours, unban, and freeze/unfreeze.
+- When an administrator brings a player to them, the server saves that player's previous position and shows a return prompt with an administrator notification. Teleporting to a player or a world location also keeps the administrator's return action available.
+- Timed bans use Valheim's native ban list and are automatically removed by the server after their configured expiry. Frozen movement ends when an administrator unfreezes the player or the player disconnects.
+- Added **Admin → World → Clear dropped items**. The server removes dropped item entities across its world while leaving inventory and container contents intact.
+- Tightened server command delivery and malformed-expiry handling for player moderation, and reset temporary moderation and return states when the active world changes.
+- Added the MIT license to the source and Thunderstore package. README and changelog content is in English.
+- Bumped the network protocol to 184. Install Nexus Admin Tools 1.8.4 on the server and every client.
+
+## 1.8.3 — October 19, 2026
+
+- Added a one-slot undo trash area to **Admin → Inventory**. It accepts a whole stack from the player's inventory; discarding another stack replaces the saved item.
+- Added a restore button. Restored items keep their item data and custom names; when no safe inventory space is available, the item remains in the trash slot.
+- Persisted the undo item on the administrator's client per world and character, so it remains available after restarting the game.
+- Connected the HUD trash area to Valheim's native inventory discard action. The native discard button routes to the undo slot only while the trash page is open.
+- Restricted the feature to the local administrator's own inventory. Container items are not accepted; remote clients must receive the server's one-use admin approval before the local inventory changes.
+- Kept network protocol 181 because the change reuses the existing authenticated local-action request.
+
 ## 1.8.2 — October 19, 2026
 
 - Renamed the user-facing mod to Nexus Admin Tools in the HUD, mod list, documentation, and packages. The plugin GUID and DLL path remain unchanged so existing installations can be updated in place.

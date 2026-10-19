@@ -7,7 +7,7 @@ $dll = Join-Path $root 'src\bin\Release\ValheimSpawner.dll'
 if ([Reflection.AssemblyName]::GetAssemblyName($dll).Version.ToString() -ne "$version.0") { throw 'Assembly version mismatch' }
 $plugin = Get-Content -LiteralPath (Join-Path $root 'src\Plugin.cs') -Raw
 if (-not $plugin.Contains("PluginVersion = `"$version`"")) { throw 'Plugin version mismatch' }
-foreach ($document in @('manifest.json','README.md')) {
+foreach ($document in @('manifest.json','README.md','changelog.md','LICENSE')) {
     $main = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $document)).Hash
     $template = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root "package_template\$document")).Hash
     if ($main -ne $template) { throw "Template mismatch: $document" }
@@ -23,7 +23,7 @@ foreach ($name in @("Nexus-Admin-Tools-Thunderstore-$version.zip", "Nexus-Admin-
         if (($names | Sort-Object -Unique).Count -ne $names.Count) { throw "Duplicate ZIP entries: $name" }
         if ($names | Where-Object { $_ -match '(^|/)(\.\.|bin|obj|\.dotnet-cli-home|\.git)(/|$)' }) { throw "Unexpected internal entry in $name" }
         if ($name -notmatch 'Source') {
-            foreach ($required in @('manifest.json','README.md','icon.png')) {
+            foreach ($required in @('manifest.json','README.md','changelog.md','LICENSE','icon.png')) {
                 if ($names -notcontains $required) { throw "Missing Thunderstore root entry: $required" }
             }
             $packageManifestEntry = $zip.GetEntry('manifest.json')
@@ -52,7 +52,7 @@ foreach ($name in @("Nexus-Admin-Tools-Thunderstore-$version.zip", "Nexus-Admin-
             try { $digest = [BitConverter]::ToString($hash.ComputeHash($inputStream)).Replace('-','') }
             finally { $inputStream.Dispose(); $hash.Dispose() }
             if ($digest -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $dll).Hash) { throw 'Packaged DLL differs from built DLL' }
-            $allowed = @('manifest.json','README.md','icon.png','BepInEx/plugins/ValheimSpawner/ValheimSpawner.dll')
+            $allowed = @('manifest.json','README.md','changelog.md','LICENSE','icon.png','BepInEx/plugins/ValheimSpawner/ValheimSpawner.dll')
             if ($fileNames.Count -ne $allowed.Count -or @($fileNames | Where-Object { $_ -notin $allowed }).Count -ne 0) { throw 'Thunderstore package contains unexpected files' }
         }
         else {

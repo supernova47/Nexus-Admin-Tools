@@ -1,4 +1,4 @@
-"""Source regression guards for v1.8.2. C# compilation and compiled IL checks run separately."""
+"""Source regression guards for the current release. C# compilation and compiled IL checks run separately."""
 import json
 import re
 import unittest
@@ -6,23 +6,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / 'src' / 'Plugin.cs').read_text(encoding='utf-8')
+VERSION = json.loads((ROOT / 'manifest.json').read_text(encoding='utf-8'))['version_number']
 
 
 class ReleaseGuards(unittest.TestCase):
     def test_version_consistency(self):
         for file in ('manifest.json', 'package_template/manifest.json'):
             manifest = json.loads((ROOT / file).read_text(encoding='utf-8'))
-            self.assertEqual('1.8.2', manifest['version_number'])
+            self.assertEqual(VERSION, manifest['version_number'])
             self.assertEqual('Nexus_Admin_Tools', manifest['name'])
             self.assertEqual('https://github.com/supernova47/Nexus-Admin-Tools', manifest['website_url'])
             self.assertLessEqual(len(manifest['description']), 250)
         self.assertIn('PluginName = "Nexus Admin Tools"', SOURCE)
-        self.assertIn('PluginVersion = "1.8.2"', SOURCE)
-        self.assertIn('**Version:** 1.8.2', (ROOT / 'README.md').read_text(encoding='utf-8'))
-        self.assertIn('**Version:** 1.8.2', (ROOT / 'package_template/README.md').read_text(encoding='utf-8'))
+        self.assertIn(f'PluginVersion = "{VERSION}"', SOURCE)
+        self.assertIn(f'**Version:** {VERSION}', (ROOT / 'README.md').read_text(encoding='utf-8'))
+        self.assertIn(f'**Version:** {VERSION}', (ROOT / 'package_template/README.md').read_text(encoding='utf-8'))
         readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+        changelog = (ROOT / 'changelog.md').read_text(encoding='utf-8')
         self.assertNotRegex(readme, '[А-Яа-яЁё]')
+        self.assertNotRegex(changelog, '[А-Яа-яЁё]')
         self.assertIn('https://github.com/supernova47/Nexus-Admin-Tools/issues', readme)
+        self.assertIn('https://github.com/supernova47/Nexus-Admin-Tools/discussions', readme)
+        self.assertIn('MIT License', readme)
+        self.assertIn('MIT License', (ROOT / 'LICENSE').read_text(encoding='utf-8'))
+        self.assertIn(VERSION, changelog)
 
     def test_public_github_release_is_tagged_and_uses_hosted_runners(self):
         workflow = (ROOT / '.github' / 'workflows' / 'release.yml').read_text(encoding='utf-8')
@@ -357,7 +364,106 @@ class ReleaseGuards(unittest.TestCase):
         self.assertIn('sb.Append("{\\"Format\\":2,\\"Kits\\":[")', codec) if False else None
         self.assertIn('NexusAdvancedJson.Serialize', (ROOT / 'src' / 'NexusAdvancedData.cs').read_text(encoding='utf-8'))
         self.assertIn('Format 2', (ROOT / 'README.md').read_text(encoding='utf-8'))
-        self.assertIn('**Version:** 1.8.2', (ROOT / 'README.md').read_text(encoding='utf-8'))
+        self.assertIn(f'**Version:** {VERSION}', (ROOT / 'README.md').read_text(encoding='utf-8'))
+
+    def test_trash_undo_is_persistent_and_scoped_to_world_and_character(self):
+        trash = (ROOT / 'src' / 'NexusTrash.cs').read_text(encoding='utf-8')
+        move = trash[trash.index('private bool MoveDraggedItemToTrash'):trash.index('private void RestoreTrashedItem')]
+        self.assertLess(move.index('TrySaveTrashItem(item, currentScope)'), move.index('inventory.RemoveItem(item)'))
+        take = trash[trash.index('private bool TryTrashDraggedItem'):trash.index('private bool MoveDraggedItemToTrash')]
+        self.assertIn('RecordLocalAdminAction(detail)', take)
+        self.assertNotIn('AuthorizeLocal(retry, detail)', take)
+        self.assertIn('private static void InventoryDragSetupPostfix', trash)
+        self.assertIn('dragCanvas.sortingOrder = mod._nativeCanvas.sortingOrder + 1;', trash)
+        self.assertIn('item.Save(package)', trash)
+        self.assertIn('ItemDrop.ItemData.Load(new ZPackage(itemData), restored, Version.c_ItemDataVersion)', trash)
+        self.assertIn('"NexusAdminTrash"', trash)
+        self.assertIn('worldId + "-" + playerId', trash)
+        self.assertIn('TryDeleteTrashSave(_trashScope)', trash)
+        self.assertIn('File.Replace(temporaryPath, path, null)', trash)
+
+    def test_admin_player_actions_are_server_routed_and_keep_return_points(self):
+        network = (ROOT / 'src' / 'NexusNetwork.cs').read_text(encoding='utf-8')
+        players = (ROOT / 'src' / 'NexusPlayerAdmin.cs').read_text(encoding='utf-8')
+        for action in ('PlayerRoster', 'TeleportToPlayer', 'TeleportPlayerHere', 'KickPlayer', 'BanPlayer',
+                       'UnbanPlayer', 'FreezePlayer', 'PlayerReturn', 'PlayerReturnDismiss'):
+            self.assertIn('AdminAction.' + action, network)
+        self.assertIn('else if (kind == AdminAction.PlayerReturn || kind == AdminAction.PlayerReturnDismiss)', network)
+        self.assertIn('if (!granted && kind != AdminAction.PlayerReturn && kind != AdminAction.PlayerReturnDismiss)', network)
+        for api in ('ZNet.instance.Kick(', 'ZNet.instance.Ban(', 'ZNet.instance.Unban(', 'TargetCommandRpc',
+                    'TargetCommandTeleport', 'TargetCommandFreeze', 'ExecutePlayerReturn'):
+            self.assertIn(api, players)
+        self.assertIn('_adminReturnPositions[targetUid] = oldPosition', players)
+        self.assertIn('_adminReturnPositions.Remove(playerUid)', players)
+        self.assertIn('HudButton(_playerReturnPrompt.transform, "×"', players)
+        self.assertIn('PruneDisconnectedFrozenPlayers', players)
+
+    def test_native_inventory_remains_usable_with_the_nexus_window_open(self):
+        hud = (ROOT / 'src' / 'NexusNativeHud.cs').read_text(encoding='utf-8')
+        plugin = (ROOT / 'src' / 'Plugin.cs').read_text(encoding='utf-8')
+        self.assertNotIn('HandleHudInventoryInput', plugin + hud)
+        self.assertIn('mod.ShouldAllowHudInventoryInput(__originalMethod, __args)', plugin)
+        self.assertIn('NativeInventoryIsVisible() || _inventoryVisibleLastFrame', plugin)
+        self.assertIn('_inventoryVisibleLastFrame = NativeInventoryIsVisible();', plugin)
+        self.assertIn('if (NativeInventoryIsVisible())\n            {', hud)
+        self.assertIn('button == "Inventory" || button == "JoyInventory" || button == "JoyButtonB"', hud)
+        self.assertIn('openButton == "Inventory" || openButton == "JoyInventory" || openButton == "JoyButtonY"', hud)
+        self.assertIn('private static bool IsInventoryCloseShortcut', hud)
+        self.assertIn('button == "Inventory" || button == "JoyInventory" || button == "JoyButtonB"', hud)
+        self.assertIn('ApplyNativeHudCanvasOrder(NativeInventoryIsVisible())', hud)
+        self.assertIn('_nativeCanvas.overrideSorting = inventoryVisible;', hud)
+        self.assertIn('_nativeCanvas.sortingOrder = 1000;', hud)
+        self.assertIn('inventory.Hide()', hud)
+        self.assertIn('NativeInventoryIsVisible()) return true;', plugin[plugin.index('private static bool BlockMouseScrollWheelPrefix'):])
+
+    def test_return_prompt_is_frontmost_and_self_service(self):
+        players = (ROOT / 'src' / 'NexusPlayerAdmin.cs').read_text(encoding='utf-8')
+        hud = (ROOT / 'src' / 'NexusNativeHud.cs').read_text(encoding='utf-8')
+        plugin = (ROOT / 'src' / 'Plugin.cs').read_text(encoding='utf-8')
+        self.assertIn('promptGroup.blocksRaycasts = true', players)
+        self.assertIn('DismissPlayerReturnPrompt, requireAdmin: false', players)
+        self.assertIn('RequestPlayerReturn, requireAdmin: false', players)
+        self.assertIn('_ =>\n            {\n                _playerReturnAvailable = _returnAvailable = false;', players)
+        self.assertIn('if (_playerReturnPrompt != null && _playerReturnPrompt.activeInHierarchy)', plugin)
+        self.assertIn('_playerReturnPrompt.transform.SetAsLastSibling();', plugin)
+        self.assertIn('promptCanvas.sortingOrder = 1100;', players)
+        self.assertIn('if (_isOpen || (_playerReturnPrompt != null && _playerReturnPrompt.activeInHierarchy))', plugin)
+        self.assertIn('if (requireAdmin && !HasAdminAccess) return;', hud)
+        self.assertIn('button.targetGraphic.raycastTarget = true;', hud)
+
+    def test_ground_item_cleanup_claims_objects_before_queueing_replicated_deletion(self):
+        ground = (ROOT / 'src' / 'NexusGroundItems.cs').read_text(encoding='utf-8')
+        feedback = (ROOT / 'src' / 'NexusCleanup.cs').read_text(encoding='utf-8')
+        claim = ground.index('zdo.SetOwner(serverSession)')
+        destroy = ground.index('manager.DestroyZDO(zdo)')
+        self.assertLess(claim, destroy)
+        self.assertIn('long serverSession = ZDOMan.GetSessionID();', ground)
+        self.assertIn('if (!zdo.IsOwner()) { failed++; continue; }', ground)
+        self.assertIn('queued++;', ground)
+        self.assertIn('queue dropped ground item removal count=', ground)
+        self.assertIn('Removal queued for dropped items:', feedback)
+
+    def test_ground_item_cleanup_and_carry_weight_are_server_scoped(self):
+        ground = (ROOT / 'src' / 'NexusGroundItems.cs').read_text(encoding='utf-8')
+        network = (ROOT / 'src' / 'NexusNetwork.cs').read_text(encoding='utf-8')
+        admin = (ROOT / 'src' / 'NexusAdmin.cs').read_text(encoding='utf-8')
+        self.assertIn('ZNet.instance == null || !ZNet.instance.IsServer()', ground)
+        self.assertIn('ZDOMan.instance', ground)
+        self.assertIn('manager.DestroyZDO(zdo)', ground)
+        self.assertIn('AdminAction.ClearDroppedItems', network)
+        self.assertIn('Config.Bind(scope, "CarryWeight"', admin)
+        self.assertIn('Config.Bind(scope, "CarryWeightEnabled"', admin)
+        self.assertIn('TrySetFloatMember(player, "m_maxCarryWeight"', admin)
+
+    def test_release_packages_include_english_readme_changelog_and_mit_license(self):
+        build = (ROOT / 'BuildMod.ps1').read_text(encoding='utf-8')
+        source_pack = (ROOT / 'PackageSource.ps1').read_text(encoding='utf-8')
+        validation = (ROOT / 'tests' / 'ValidatePackages.ps1').read_text(encoding='utf-8')
+        for name in ('README.md', 'changelog.md', 'LICENSE'):
+            self.assertIn("Copy-Item (Join-Path $root '" + name + "')", build)
+            self.assertIn(name, validation)
+        self.assertIn("-in @('.gitignore','LICENSE')", source_pack)
+        self.assertIn("-or $_.Name -eq 'LICENSE'", source_pack)
 
 
 

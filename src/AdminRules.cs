@@ -6,7 +6,7 @@ namespace SuperNova.ValheimSpawner
     // Pure protocol rules shared with the regression tests. Never trust client UI bounds.
     internal static class AdminRules
     {
-        internal const int Protocol = 181;
+        internal const int Protocol = 185;
         internal const int MaxPacketBytes = 16384;
         internal const int AllModeBits = 1023;
         internal static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);

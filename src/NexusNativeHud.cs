@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using Jotunn.Managers;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -15,6 +16,7 @@ namespace SuperNova.ValheimSpawner
         private static readonly Color HudGold = new Color(1f, .78f, .36f);
         private static AudioClip _nativeClickClip;
         private GameObject _nativeHud, _nativeBody;
+        private Canvas _nativeCanvas;
         private Text _nativeStatus, _nativeClock;
         private RectTransform _nativeRect;
         private ScrollRect _nativeList;
@@ -28,6 +30,7 @@ namespace SuperNova.ValheimSpawner
         private float _catalogScrollPosition = 1f;
         private int _skillPage;
         private int _locationPage, _locationTotal, _locationSelection, _loadedLocationPage = -1;
+        private bool _playerReturnAvailable;
         private string _newLocationName = string.Empty, _locationRenameInput = string.Empty;
         private int _auditPage, _auditTotal, _auditSelection, _loadedAuditPage = -1;
         private List<NexusWorldLocation> _adminLocations = new List<NexusWorldLocation>();
@@ -71,8 +74,67 @@ namespace SuperNova.ValheimSpawner
 
         private void RebuildNativeHud() { _hudDirty = true; _listDirty = true; }
 
+        private bool NativeInventoryIsVisible()
+        {
+            try { return InventoryGui.IsVisible(); }
+            catch (Exception ex)
+            {
+                Logger.LogDebug("Could not read the native inventory visibility: " + ex.Message);
+                return false;
+            }
+        }
+
+        private bool ShouldAllowHudInventoryInput(MethodBase originalMethod, object[] args)
+        {
+            if (originalMethod?.DeclaringType == null || originalMethod.DeclaringType.Name != "ZInput") return false;
+
+            if (NativeInventoryIsVisible())
+            {
+                // Keep the native inventory open until Escape. Its other keyboard,
+                // gamepad and mouse queries remain available for selection and dragging.
+                if (IsInventoryCloseShortcut(originalMethod, args)) return false;
+                return true;
+            }
+
+            // Let Valheim open its own inventory when Tab/the controller binding is
+            // pressed; all other gameplay input remains blocked by the HUD.
+            if (NexusTextEditorFocused() || originalMethod.Name != "GetButtonDown" || args == null || args.Length == 0 ||
+                !(args[0] is string openButton)) return false;
+            return openButton == "Inventory" || openButton == "JoyInventory" || openButton == "JoyButtonY";
+        }
+
+        private static bool IsInventoryCloseShortcut(MethodBase originalMethod, object[] args)
+        {
+            if (originalMethod?.DeclaringType == null || originalMethod.DeclaringType.Name != "ZInput" ||
+                originalMethod.Name != "GetButtonDown" || args == null || args.Length == 0 || !(args[0] is string button)) return false;
+            return button == "Inventory" || button == "JoyInventory" || button == "JoyButtonB" ||
+                button == "JoyButtonY" || button == "Use";
+        }
+
+        private bool NexusTextEditorFocused()
+        {
+            if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null &&
+                EventSystem.current.currentSelectedGameObject.GetComponent<InputField>()?.isFocused == true) return true;
+            return Chat.instance != null && Chat.instance.HasFocus() || global::Console.IsVisible();
+        }
+
+        private void HideNativeInventory()
+        {
+            try
+            {
+                var inventory = InventoryGui.instance;
+                if (inventory != null) inventory.Hide();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning("Could not close inventory while Nexus HUD is active: " + ex.Message);
+                _status = T("Could not close the inventory.", "Не удалось закрыть инвентарь.");
+            }
+        }
+
         private void TickNativeHud()
         {
+            TickPlayerReturnPrompt();
             if (_isOpen && (!HasAdminAccess || Player.m_localPlayer == null || Player.m_localPlayer.IsDead())) SetOpen(false);
             if (!_isOpen || GUIManager.IsHeadless()) return;
             if (GUIManager.Instance == null || GUIManager.CustomGUIBack == null) return;
@@ -81,6 +143,7 @@ namespace SuperNova.ValheimSpawner
                 if (_nativeHud == null) BuildNativeHud();
                 _nativeHud.SetActive(!_legacyToolsOpen);
                 if (_legacyToolsOpen) return;
+                ApplyNativeHudCanvasOrder(NativeInventoryIsVisible());
                 _nativeHud.GetComponent<CanvasGroup>().interactable = !_pendingActions.Values.Any(p => p.Kind != AdminAction.Poll);
                 var parent = _nativeRect.parent as RectTransform;
                 float width = parent != null && parent.rect.width > 1 ? parent.rect.width : Screen.width;
@@ -113,9 +176,15 @@ namespace SuperNova.ValheimSpawner
                 new Vector2(.5f, .5f), new Vector2(.5f, .5f), Vector2.zero, HudWidth, HudHeight, false);
             _nativeHud.name = "SN_Nexus_WorkspaceHUD";
             if (_nativeHud.GetComponent<CanvasGroup>() == null) _nativeHud.AddComponent<CanvasGroup>();
+            _nativeCanvas = _nativeHud.GetComponent<Canvas>();
+            if (_nativeCanvas == null) _nativeCanvas = _nativeHud.AddComponent<Canvas>();
+            if (_nativeHud.GetComponent<GraphicRaycaster>() == null) _nativeHud.AddComponent<GraphicRaycaster>();
             _nativeRect = _nativeHud.GetComponent<RectTransform>();
             _nativeRect.anchorMin = _nativeRect.anchorMax = _nativeRect.pivot = new Vector2(.5f, .5f);
             _nativeRect.anchoredPosition = new Vector2(_hudPositionXConfig?.Value ?? 0f, _hudPositionYConfig?.Value ?? 0f);
+            // Let clicks pass through decorative wood textures when the inventory is open
+            // behind the movable panel; buttons and the trash drop slot add their own raycasters.
+            foreach (var image in _nativeHud.GetComponentsInChildren<Image>(true)) image.raycastTarget = false;
             _hudDirty = true;
         }
 
@@ -130,6 +199,9 @@ namespace SuperNova.ValheimSpawner
                 if (child.name.StartsWith("Nexus_", StringComparison.Ordinal))
                 { child.gameObject.SetActive(false); UnityEngine.Object.Destroy(child.gameObject); }
             }
+            _trashDropTarget = _trashRestoreButton = null;
+            _trashItemIcon = null;
+            _trashItemLabel = null;
             HudDragSurface(_nativeHud.transform, 24, 12, 790, 40);
             var title = HudLabel(_nativeHud.transform, "NEXUS ADMIN TOOLS", 24, HudGold);
             title.font = GUIManager.Instance.AveriaSerifBold;
@@ -386,11 +458,11 @@ namespace SuperNova.ValheimSpawner
         {
             Transform body = _nativeBody.transform;
             string[] sections = { T("World", "Мир"), T("Player", "Игрок"), T("Skills", "Навыки"),
-                T("Inventory", "Инвентарь"), T("Locations", "Локации"), T("Audit log", "Журнал") };
+                T("Inventory", "Инвентарь"), T("Locations", "Локации"), T("Players", "Игроки"), T("Audit log", "Журнал") };
             for (int i = 0; i < sections.Length; i++)
             {
                 int section = i;
-                var button = HudButton(body, sections[i], i * 176, 0, 170, 34,
+                var button = HudButton(body, sections[i], i * 150, 0, 146, 34,
                 () => { _adminSection = section; SaveAdminPreferences(); RebuildNativeHud(); });
                 HudHighlight(button, i == _adminSection);
             }
@@ -441,6 +513,11 @@ namespace SuperNova.ValheimSpawner
                 y += 46;
                 HudParagraph(form, T("Disabling stops an active raid and blocks new raids until enabled again.",
                     "Отключение завершает текущий набег и блокирует новые, пока вы снова не включите их."), ref y, 72);
+                HudButton(right, T("Clear all dropped items on the ground", "Очистить все выброшенные предметы"),
+                    0, 244, 434, 40, () => RequestWorldAction(AdminAction.ClearDroppedItems, null));
+                float dropsInfoY = 292;
+                HudParagraph(right, T("Removes networked item drops throughout the world. Containers and player inventories are untouched.",
+                    "Удаляет лежащие в мире сетевые предметы. Содержимое контейнеров и инвентарь игроков не затрагиваются."), ref dropsInfoY, 88);
             }
             if (_adminSection == 1)
             {
@@ -467,6 +544,28 @@ namespace SuperNova.ValheimSpawner
                     if (float.TryParse(v.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float n) && AdminRules.Finite(n) && n >= 1 && n <= 25)
                     { _superDamageMultiplier = n; SaveAdminPreferences(); damage.text = T("Damage ×", "Урон ×") + n; }
                 }); y += 46;
+                HudSection(form, T("CARRY WEIGHT", "ПЕРЕНОСИМЫЙ ВЕС"), ref y);
+                var carryWeightStatus = HudLabel(form, "", 15);
+                HudPlace(carryWeightStatus, 0, y, 434, 28);
+                _hudDynamic.Add(() =>
+                {
+                    var player = Player.m_localPlayer;
+                    carryWeightStatus.text = T("Current effective limit: ", "Текущий лимит с бонусами: ") +
+                        (player == null ? "—" : player.GetMaxCarryWeight().ToString("0.##", CultureInfo.InvariantCulture)) + " kg";
+                });
+                y += 32;
+                HudInput(form, _carryWeightInput, 0, y, 180, 34, 7, value => _carryWeightInput = value,
+                    T("Base carry weight (kg)", "Базовый вес (кг)"));
+                HudButton(form, T("Set", "Установить"), 190, y, 118, 34, () =>
+                {
+                    if (float.TryParse((_carryWeightInput ?? string.Empty).Replace(',', '.'), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out float weight)) SetMaxCarryWeight(weight);
+                    else _status = T("Enter a valid carry weight.", "Введите корректное значение веса.");
+                });
+                HudButton(form, T("Restore default", "По умолчанию"), 316, y, 118, 34, ResetMaxCarryWeight);
+                y += 42;
+                HudParagraph(form, T("Stored for this world and character. Status and equipment bonuses still apply.",
+                    "Сохраняется для этого мира и персонажа. Бонусы от экипировки и эффектов сохраняются."), ref y, 62);
             }
             if (_adminSection == 2)
             {
@@ -514,6 +613,7 @@ namespace SuperNova.ValheimSpawner
                 HudButton(form, T("Heal myself", "Восстановить здоровье"), 0, y, 434, 36, HealSelf); y += 46;
                 HudButton(form, T("Repair inventory", "Починить инвентарь"), 0, y, 434, 36, RepairInventory); y += 46;
                 HudButton(form, T("Fill stacks", "Заполнить стаки"), 0, y, 434, 36, MaximizeInventoryStacks); y += 52;
+                BuildTrashControls(form, ref y);
                 form = right; y = 0;
                 HudSection(form, T("NEARBY CREATURE CLEANUP", "ОЧИСТКА СУЩЕСТВ РЯДОМ"), ref y);
                 HudParagraph(form, T("Radius: ", "Радиус: ") + GetKillRadius().ToString("0") + T(" m. Players are excluded.", " м. Игроки исключены."), ref y, 52);
@@ -522,7 +622,8 @@ namespace SuperNova.ValheimSpawner
                 HudButton(form, T("Kill nearby creatures", "Убить существ поблизости"), 0, y, 434, 36, () => KillNearbyCreatures()); y += 48;
             }
             if (_adminSection == 4) BuildLocationsAdminPage(form, right);
-            if (_adminSection == 5) BuildAuditAdminPage(body);
+            if (_adminSection == 5) BuildPlayersAdminPage(form, right);
+            if (_adminSection == 6) BuildAuditAdminPage(body);
             y = 582;
             HudParagraph(body, T("Choices are saved for this world and character. Administrator rights are checked again on login.",
                 "Выбор сохраняется для этого мира и персонажа. При входе права администратора проверяются заново."), ref y, 68);
@@ -723,7 +824,7 @@ namespace SuperNova.ValheimSpawner
             RequestWorldAction(AdminAction.Teleport, packet => { packet.Write(location.Key); packet.Write(location.Position); }, response =>
             {
                 Vector3 destination = response.ReadVector3();
-                if (TeleportLocalPlayer(destination)) { _returnAvailable = true; RebuildNativeHud(); }
+                if (TeleportLocalPlayer(destination)) { _returnAvailable = _playerReturnAvailable = true; RebuildNativeHud(); }
             });
         }
 
@@ -733,7 +834,8 @@ namespace SuperNova.ValheimSpawner
             RequestWorldAction(AdminAction.Return, null, response =>
             {
                 Vector3 destination = response.ReadVector3();
-                if (TeleportLocalPlayer(destination)) { _returnAvailable = false; RebuildNativeHud(); }
+                if (TeleportLocalPlayer(destination))
+                { _returnAvailable = _playerReturnAvailable = false; DestroyPlayerReturnPrompt(); RebuildNativeHud(); }
             });
         }
 
@@ -968,7 +1070,8 @@ namespace SuperNova.ValheimSpawner
             text.alignment = TextAnchor.UpperLeft;
             return text;
         }
-        private Button HudButton(Transform parent, string title, float x, float y, float width, float height, Action click)
+        private Button HudButton(Transform parent, string title, float x, float y, float width, float height,
+            Action click, bool requireAdmin = true)
         {
             var go = GUIManager.Instance.CreateButton(title, parent, HudTopLeft, HudTopLeft, Vector2.zero, width, height);
             go.name = "Nexus_Button";
@@ -981,9 +1084,11 @@ namespace SuperNova.ValheimSpawner
                     component.enabled = false;
             }
             var text = button.GetComponentInChildren<Text>(); text.fontSize = 16; text.supportRichText = false;
+            text.raycastTarget = false;
+            if (button.targetGraphic != null) button.targetGraphic.raycastTarget = true;
             button.onClick.AddListener(() =>
             {
-                if (!HasAdminAccess) return;
+                if (requireAdmin && !HasAdminAccess) return;
                 PlayNativeButtonSound();
                 try { click(); } catch (Exception ex) { Logger.LogError("Nexus action failed: " + ex); _status = T("Action failed; see log.", "Ошибка действия; см. журнал."); }
             });
@@ -1068,7 +1173,14 @@ namespace SuperNova.ValheimSpawner
         {
             if (_nativeInputBlocked) { GUIManager.BlockInput(false); _nativeInputBlocked = false; }
             if (_nativeHud != null) UnityEngine.Object.Destroy(_nativeHud);
-            _nativeHud = null; _hudDynamic.Clear();
+            _nativeHud = null; _nativeCanvas = null; _hudDynamic.Clear();
+        }
+
+        private void ApplyNativeHudCanvasOrder(bool inventoryVisible)
+        {
+            if (_nativeCanvas == null) return;
+            _nativeCanvas.overrideSorting = inventoryVisible;
+            if (inventoryVisible) _nativeCanvas.sortingOrder = 1000;
         }
 
         private void PlayNativeButtonSound()

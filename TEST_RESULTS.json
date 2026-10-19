@@ -1,5 +1,5 @@
 {
-  "version": "1.8.2",
+  "version": "1.8.7",
   "date": "2026-10-19",
   "status": "compiled_candidate_not_game_tested",
   "build": {
@@ -7,12 +7,24 @@
     "target": "netstandard2.1",
     "errors": 0,
     "warnings": 2,
-    "warning_codes": ["MSB3277"]
+    "warning_codes": [
+      "MSB3277"
+    ]
   },
   "checks": {
-    "admin_protocol_clock_replay": {"passed": true, "assertions": 2934},
-    "dedicated_cleanup_production_handler": {"passed": true, "assertions": 57, "live_network": false},
-    "favorites": {"passed": true, "assertions": 16},
+    "admin_protocol_clock_replay": {
+      "passed": true,
+      "assertions": 2934
+    },
+    "dedicated_cleanup_production_handler": {
+      "passed": true,
+      "assertions": 57,
+      "live_network": false
+    },
+    "favorites": {
+      "passed": true,
+      "assertions": 16
+    },
     "persistence_and_kit_transfer": {
       "passed": true,
       "scenarios": [
@@ -26,13 +38,24 @@
     "namekeeper_item_capture": {
       "passed": true,
       "assertions": 15,
-      "scenarios": ["second rename", "reset to default", "kit stamping clears stale Namekeeper markers"]
+      "scenarios": [
+        "second rename",
+        "reset to default",
+        "kit stamping clears stale Namekeeper markers"
+      ]
     },
-    "source_regressions": {"passed": true, "tests": 31},
-    "compiled_authorization_transport_and_world_actions": {"passed": true, "assertions": 112, "live_network": false},
+    "source_regressions": {
+      "passed": true,
+      "tests": 39
+    },
+    "compiled_authorization_transport_and_world_actions": {
+      "passed": true,
+      "assertions": 158,
+      "live_network": false
+    },
     "installed_game_api_contracts": {
       "passed": true,
-      "assertions": 10,
+      "assertions": 49,
       "assembly_valheim_sha256": "94998885B103D6E5F5480123EAEE0A093E82AF2DDEEEE37536C15BF555F24F3A"
     },
     "thunderstore_manifest_dependencies": {
@@ -41,21 +64,105 @@
         "denikson-BepInExPack_Valheim-5.4.2351",
         "ValheimModding-Jotunn-2.30.2"
       ]
+    },
+    "inventory_trash": {
+      "passed": true,
+      "compiled_authorization_assertions": 13,
+      "installed_game_api_assertions": 17,
+      "behaviors": [
+        "admin-only trash after recent server-granted access",
+        "whole stacks from personal inventory only",
+        "cursor-held item renders above HUD",
+        "immediate local trash and persistent undo slot without a blocking server round trip",
+        "new successful trash replaces previous undo item",
+        "exact item data and custom names preserved on restore",
+        "full inventory keeps item in trash",
+        "asynchronous server audit after successful action",
+        "trash scoped to world and character"
+      ]
+    },
+    "package_validation": {
+      "passed": true,
+      "thunderstore_entries": 7,
+      "source_entries": 83
+    },
+    "admin_player_moderation": {
+      "passed": true,
+      "included": [
+        "online roster and paging",
+        "teleport to player and return",
+        "bring player and target-owned return",
+        "kick",
+        "permanent ban",
+        "timed ban in hours with automatic expiry",
+        "unban",
+        "freeze until unfrozen or disconnect"
+      ],
+      "live_network": false
+    },
+    "personal_carry_weight": {
+      "passed": true,
+      "scope": "world and character",
+      "enabled_only_after_admin_permission": true,
+      "live_game": false
+    },
+    "clear_dropped_items": {
+      "passed": true,
+      "server_side": true,
+      "excludes_player_inventories_and_containers": true,
+      "live_network": false,
+      "server_takes_ownership_before_destroy": true,
+      "reports_removal_queue_count": true
+    },
+    "release_documentation": {
+      "passed": true,
+      "readme_language": "English",
+      "changelog_language": "English",
+      "license": "MIT",
+      "thunderstore_includes_readme_changelog_and_license": true
+    },
+    "native_inventory_access": {
+      "behaviors": [
+        "Tab opens native inventory while Nexus HUD stays open",
+        "Inventory shortcut close is blocked; Escape closes inventory first",
+        "HUD remains draggable while the cursor-held item renders above it and the trash target receives drop events",
+        "HUD and inventory close independently; F6 and close button remain available"
+      ],
+      "live_game": false,
+      "game_api_contracts": [
+        "InventoryGui.IsVisible",
+        "InventoryGui.Show(Container, Int32)",
+        "InventoryGui.Hide"
+      ],
+      "passed": true
+    },
+    "return_point_dismissal": {
+      "removes_saved_point": true,
+      "server_routed": true,
+      "live_network": false,
+      "scoped_to_requesting_player": true,
+      "passed": true,
+      "frontmost": true,
+      "cursor_unlocked_for_direct_dismissal": true
     }
   },
   "review": {
     "layout": "Source reviewed at 1100x860 units for 2560x1440 at normal Valheim UI scale. Admin commands and setting controls use fixed layouts and page buttons; catalogues and kit item list retain scroll.",
     "runtime_ui_rendered": false,
     "world_locations": "Server uses ZoneSystem.GetLocationList after LocationsGenerated and includes generated unique positions even when their zones have not been loaded. Shared custom teleport points and Nexus-only location name overrides are stored per world on the server. Add-point coordinates come from the authenticated server-side player position.",
-    "network_cleanup": "Server validates client ZDO hints and dispatches per current owner; owner checks server RPC, current ownership, radius and protected categories. Status counts dispatched commands, not confirmed deaths.",
+    "network_cleanup": "Server validates creature ZDO hints and dispatches per current owner; owner checks server RPC, current ownership, radius and protected categories. Status counts dispatched commands, not confirmed deaths.",
     "kit_limit": "Kit application remains limited to 1000 total units by user choice.",
     "weather_fix": "Repeated arrow presses cycle from the latest server value and wrap through the full environment list.",
-    "location_fix": "The generated-location list includes all generated unique positions across the world, including zones not loaded by a player. Custom points and Nexus-only renames are shared and persisted per world."
+    "location_fix": "The generated-location list includes all generated unique positions across the world, including zones not loaded by a player. Custom points and Nexus-only renames are shared and persisted per world.",
+    "inventory_trash": "While inventory and HUD are open, the dragged item renders above the movable HUD and its trash target receives the drop. Trash immediately saves and removes the personal inventory stack after a recent server-issued admin grant; the server audit request is asynchronous. Verify in game using TEST_PLAN_1.8.7_RU.md.",
+    "admin_player_page": "Player lists use page buttons; action controls fit the fixed large HUD page without scrolling. Runtime UI rendering and live multiplayer were not performed.",
+    "network_player_admin": "Server verifies administrator requests over authenticated peer RPC. Targeted teleport, freeze and unfreeze commands are sent by the server and bound to the intended player UID.",
+    "network_ground_item_cleanup": "The server takes ownership of matching item ZDOs before queuing replicated destruction. Status reports queued deletion count; live multiplayer still requires the manual plan."
   },
   "game_launched": false,
   "live_multiplayer_tested": false,
   "game_profile_modified": false,
   "worlds_modified": false,
   "characters_modified": false,
-  "pending_manual_plan": "TEST_PLAN_1.8.2_RU.md"
+  "pending_manual_plan": "TEST_PLAN_1.8.7_RU.md"
 }

@@ -15,13 +15,18 @@ namespace SuperNova.ValheimSpawner
         private string _preferencesScope;
         private ConfigEntry<int> _savedModes;
         private ConfigEntry<float> _savedDamage, _savedXp;
+        private ConfigEntry<float> _savedCarryWeight;
+        private ConfigEntry<bool> _savedCarryWeightEnabled;
         private ConfigEntry<string> _savedSkill;
         private ConfigEntry<int> _savedSkillLevel, _savedHour, _savedMinute;
+        private ConfigEntry<int> _savedTimedBanHours;
         private ConfigEntry<bool> _savedCleanupTamed, _savedCleanupBosses;
         private ConfigEntry<int> _savedAdminSection;
         private int _timeHour = 12, _timeMinute, _skillTarget = 100;
         private Skills.SkillType _skillChoice = Skills.SkillType.Swords;
-        private float _nextEffectsApply;
+        private float _nextEffectsApply, _carryWeightTarget = 300f, _priorCarryWeight = 300f;
+        private string _carryWeightInput = "300";
+        private bool _carryWeightEnabled;
         private bool _effectsActive, _priorFly, _priorCreative, _priorGhost;
         private int _lastLocalAuditedModes = -1;
         private float _lastLocalAuditedDamage = float.NaN, _lastLocalAuditedXp = float.NaN;
@@ -58,15 +63,18 @@ namespace SuperNova.ValheimSpawner
                 _savedModes = Config.Bind(scope, "Modes", 0, "Remembered admin choices for this world and character. Permissions are rechecked on every connection.");
                 _savedDamage = Config.Bind(scope, "DamageMultiplier", 5f);
                 _savedXp = Config.Bind(scope, "SkillXpMultiplier", 1f);
+                _savedCarryWeight = Config.Bind(scope, "CarryWeight", 300f, "Personal base carry weight configured by Nexus.");
+                _savedCarryWeightEnabled = Config.Bind(scope, "CarryWeightEnabled", false, "Apply the personal carry weight override while administrator access is available.");
                 _savedSkill = Config.Bind(scope, "SelectedSkill", "Swords");
                 _savedSkillLevel = Config.Bind(scope, "SkillTarget", 100);
                 _savedHour = Config.Bind(scope, "TimeHour", 12);
                 _savedMinute = Config.Bind(scope, "TimeMinute", 0);
                 _savedCleanupTamed = Config.Bind(scope, "CleanupTamed", false);
                 _savedCleanupBosses = Config.Bind(scope, "CleanupBosses", false);
+                _savedTimedBanHours = Config.Bind(scope, "TimedBanHours", 24);
                 _savedAdminSection = Config.Bind(scope, "Section", 0);
                 _killIncludeTamed = _savedCleanupTamed.Value; _killIncludeBosses = _savedCleanupBosses.Value;
-                _adminSection = Mathf.Clamp(_savedAdminSection.Value, 0, 5);
+                _adminSection = Mathf.Clamp(_savedAdminSection.Value, 0, 6);
                 int bits = _savedModes.Value & AdminRules.AllModeBits;
                 _infiniteHealth = (bits & 1) != 0; _infiniteStamina = (bits & 2) != 0; _infiniteEitr = (bits & 4) != 0;
                 _infiniteAdrenaline = (bits & 8) != 0; _superDamage = (bits & 16) != 0;
@@ -75,9 +83,13 @@ namespace SuperNova.ValheimSpawner
                 _infiniteGuardianPower = (bits & 512) != 0;
                 _superDamageMultiplier = AdminRules.Finite(_savedDamage.Value) ? Mathf.Clamp(_savedDamage.Value, 1, 25) : 5;
                 _skillXpMultiplier = AdminRules.Finite(_savedXp.Value) ? Mathf.Clamp(_savedXp.Value, 1, 1000) : 1;
+                _carryWeightTarget = AdminRules.Finite(_savedCarryWeight.Value) ? Mathf.Clamp(_savedCarryWeight.Value, 1, 10000) : 300f;
+                _carryWeightInput = _carryWeightTarget.ToString("0.##", CultureInfo.InvariantCulture);
+                _carryWeightEnabled = _savedCarryWeightEnabled.Value;
                 _skillXpInput = _skillXpMultiplier.ToString(CultureInfo.InvariantCulture);
                 _skillTarget = Mathf.Clamp(_savedSkillLevel.Value, 0, 100);
                 _timeHour = Mathf.Clamp(_savedHour.Value, 0, 23); _timeMinute = Mathf.Clamp(_savedMinute.Value, 0, 59);
+                _timedBanHours = Mathf.Clamp(_savedTimedBanHours.Value, 1, MaxTimedBanHours);
                 if (Enum.TryParse(_savedSkill.Value, out Skills.SkillType skill) && SkillChoices().Contains(skill)) _skillChoice = skill;
                 _lastLocalAuditedModes = DesiredModeBits;
                 _lastLocalAuditedDamage = _superDamageMultiplier; _lastLocalAuditedXp = _skillXpMultiplier;
@@ -89,6 +101,7 @@ namespace SuperNova.ValheimSpawner
                 _priorFly = ReadMember(player, "m_debugFly") is bool fly && fly;
                 _priorCreative = ReadMember(player, "m_noPlacementCost") is bool creative && creative;
                 _priorGhost = ReadMember(player, "m_ghostMode") is bool ghost && ghost;
+                _priorCarryWeight = ReadMember(player, "m_maxCarryWeight") is float carryWeight && AdminRules.Finite(carryWeight) ? carryWeight : 300f;
                 _effectsActive = true;
                 _nextEffectsApply = 0;
             }
@@ -99,6 +112,7 @@ namespace SuperNova.ValheimSpawner
                 ApplyFlightState(player, _adminFly || _priorFly);
                 TrySetBoolMember(player, "m_noPlacementCost", _adminCreative || _priorCreative);
                 player.SetGhostMode(_adminGhost || _priorGhost);
+                TrySetFloatMember(player, "m_maxCarryWeight", _carryWeightEnabled ? _carryWeightTarget : _priorCarryWeight);
                 // Cooldown is reset continuously while enabled, so a player can use
                 // a Forsaken power, switch to another, and use that one immediately.
                 if (_infiniteGuardianPower) TrySetFloatMember(player, "m_guardianPowerCooldown", 0f);
@@ -112,6 +126,7 @@ namespace SuperNova.ValheimSpawner
                 ApplyFlightState(_effectsPlayer, _priorFly);
                 TrySetBoolMember(_effectsPlayer, "m_noPlacementCost", _priorCreative);
                 _effectsPlayer.SetGhostMode(_priorGhost);
+                TrySetFloatMember(_effectsPlayer, "m_maxCarryWeight", _priorCarryWeight);
             }
             _effectsActive = false;
             _effectsPlayer = null;
@@ -123,9 +138,12 @@ namespace SuperNova.ValheimSpawner
             _savedModes.Value = DesiredModeBits;
             _savedDamage.Value = _superDamageMultiplier;
             _savedXp.Value = _skillXpMultiplier;
+            _savedCarryWeight.Value = _carryWeightTarget;
+            _savedCarryWeightEnabled.Value = _carryWeightEnabled;
             _savedSkill.Value = _skillChoice.ToString(); _savedSkillLevel.Value = _skillTarget;
             _savedHour.Value = _timeHour; _savedMinute.Value = _timeMinute;
             _savedCleanupTamed.Value = _killIncludeTamed; _savedCleanupBosses.Value = _killIncludeBosses;
+            _savedTimedBanHours.Value = _timedBanHours;
             _savedAdminSection.Value = _adminSection;
             if (ZNet.instance.IsServer()) AuditLocalModeChanges();
             _nextEffectsApply = 0;
@@ -212,6 +230,32 @@ namespace SuperNova.ValheimSpawner
             if (player == null) return;
             player.Heal(player.GetMaxHealth(), true);
             _status = T("Health restored.", "Здоровье восстановлено.");
+        }
+
+        private void SetMaxCarryWeight(float weight)
+        {
+            if (!AdminRules.Finite(weight) || weight < 1f || weight > 10000f)
+            { _status = T("Carry weight must be between 1 and 10,000.", "Вес должен быть от 1 до 10 000."); return; }
+            if (!AuthorizeLocal(() => SetMaxCarryWeight(weight), "set personal carry weight to " + weight.ToString("0.##", CultureInfo.InvariantCulture))) return;
+            _carryWeightTarget = weight;
+            _carryWeightEnabled = true;
+            _carryWeightInput = weight.ToString("0.##", CultureInfo.InvariantCulture);
+            SaveAdminPreferences();
+            TickAdminPreferences();
+            var player = Player.m_localPlayer;
+            float effective = player == null ? weight : player.GetMaxCarryWeight();
+            ShowAdminToast(T("Base carry weight set to ", "Базовый переносимый вес установлен: ") +
+                weight.ToString("0.##", CultureInfo.InvariantCulture) + T(" kg. Effective limit: ", " кг. Текущий лимит: ") +
+                effective.ToString("0.##", CultureInfo.InvariantCulture) + " kg.");
+        }
+
+        private void ResetMaxCarryWeight()
+        {
+            if (!AuthorizeLocal(ResetMaxCarryWeight, "restore vanilla personal carry weight")) return;
+            _carryWeightEnabled = false;
+            SaveAdminPreferences();
+            TickAdminPreferences();
+            ShowAdminToast(T("Vanilla carry weight restored.", "Обычный переносимый вес восстановлен."));
         }
     }
 }

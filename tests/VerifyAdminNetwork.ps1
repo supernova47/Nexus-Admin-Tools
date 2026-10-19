@@ -13,6 +13,10 @@ $assembly = [Mono.Cecil.AssemblyDefinition]::ReadAssembly([IO.Path]::GetFullPath
 try {
     $plugin = $assembly.MainModule.Types | Where-Object Name -eq 'ValheimSpawnerPlugin'
     $worldSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\NexusWorldAdmin.cs') -Raw
+    $playerSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\NexusPlayerAdmin.cs') -Raw
+    $adminSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\NexusAdmin.cs') -Raw
+    $networkSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\NexusNetwork.cs') -Raw
+    $trashSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\NexusTrash.cs') -Raw
     $checks = 0
     function Code($name) {
         $method = $plugin.Methods | Where-Object Name -eq $name
@@ -45,6 +49,14 @@ try {
         if ($worldSource -notmatch $pattern) { throw "Missing world-admin source guard: $label / $pattern" }
         $script:checks++
     }
+    function RequireTrashSource($label, $pattern) {
+        if ($trashSource -notmatch $pattern) { throw "Missing inventory-trash source guard: $label / $pattern" }
+        $script:checks++
+    }
+    function RequireFileSource($source, $label, $pattern) {
+        if ($source -notmatch $pattern) { throw "Missing source guard: $label / $pattern" }
+        $script:checks++
+    }
     $compatibility = $plugin.CustomAttributes | Where-Object { $_.AttributeType.Name -eq 'NetworkCompatibilityAttribute' }
     if (-not $compatibility -or [int]$compatibility.ConstructorArguments[0].Value -ne 2 -or [int]$compatibility.ConstructorArguments[1].Value -ne 3) {
         throw 'Matching client/server patch versions must be required'
@@ -71,9 +83,27 @@ try {
         'AdminAdrenalinePrefix','AdminOutgoingDamagePrefix','ApplyAdminVitals','UpdateAdminAdrenaline','IsNexusGhost')) {
         Require $method 'ValheimSpawnerPlugin::get_HasAdminAccess'
     }
-    foreach ($method in @('RepairInventory','MaximizeInventoryStacks','RaiseSkills','HealSelf','ApplySelectedKit','AddSelectedItemToInventory')) {
+    foreach ($method in @('RepairInventory','MaximizeInventoryStacks','RaiseSkills','HealSelf','ApplySelectedKit','AddSelectedItemToInventory','RestoreTrashedItem')) {
         Require $method 'ValheimSpawnerPlugin::AuthorizeLocal'
     }
+    Require 'InventoryDropButtonPrefix' 'ValheimSpawnerPlugin::get_HasAdminAccess'
+    Require 'InventoryDropButtonPrefix' 'ValheimSpawnerPlugin::get_TrashPageActive'
+    Require 'TryTrashDraggedItem' 'ValheimSpawnerPlugin::RecordLocalAdminAction'
+    Require 'InventoryDragSetupPostfix' 'GameObject::AddComponent<UnityEngine.Canvas>'
+    Require 'InventoryDragSetupPostfix' 'm_dragGo'
+    Require 'InventoryDragSetupPostfix' 'Canvas::set_sortingOrder'
+    Require 'RecordLocalAdminAction' 'ZRpc::Invoke'
+    Require 'TryTrashDraggedItem' 'ValheimSpawnerPlugin::GetPlayerInventory'
+    Require 'MoveDraggedItemToTrash' 'ValheimSpawnerPlugin::get_HasAdminAccess'
+    Require 'MoveDraggedItemToTrash' 'Inventory::RemoveItem'
+    Require 'RestoreTrashedItemCore' 'Inventory::AddItem'
+    RequireTrashSource 'trash only accepts full personal-inventory stacks' 'ReferenceEquals\(inventory, playerInventory\)[\s\S]*?amount != item\.m_stack'
+    RequireTrashSource 'trash item is held in one transient slot and overwritten on successful remove' '_trashedItem = item;[\s\S]*?_trashOriginalPosition = originalPosition'
+    RequireTrashSource 'restore preserves exact item data in an empty slot' 'AddItemAtEmptyPosition\(inventory, item, stack, destination\)'
+    RequireTrashSource 'trash item is persisted before removal' 'TrySaveTrashItem\(item, currentScope\)[\s\S]*?inventory\.RemoveItem\(item\)'
+    RequireTrashSource 'trash file is scoped to world and character' 'NexusAdminTrash[\s\S]*?worldId[\s\S]*?playerId'
+    RequireTrashSource 'saved item uses the game item serializer and current schema' 'item\.Save\(package\)[\s\S]*?GetArray\(\)[\s\S]*?ItemData\.Load\(new ZPackage\(itemData\), restored, Version\.c_ItemDataVersion\)'
+    RequireTrashSource 'successful restore clears the persistent undo slot' 'TryDeleteTrashSave\(_trashScope\)'
     Require 'AddItemBatches' 'ValheimSpawnerPlugin::get_HasAdminAccess'
     Require 'AddItemBatches' '_executingApprovedLocal'
     Require 'TickAdminPreferences' 'ValheimSpawnerPlugin::get_HasAdminAccess'
@@ -143,6 +173,33 @@ try {
     Require 'ApplyOwnerCleanup' 'Character::IsTamed'
     Require 'ApplyOwnerCleanup' 'Character::IsBoss'
     Require 'ApplyOwnerCleanup' 'Character::SetHealth'
+    Require 'ExecuteClearDroppedItems' 'ZNet::IsServer'
+    Require 'ExecuteClearDroppedItems' 'ZDO::SetOwner'
+    Require 'ExecuteClearDroppedItems' 'ZDOMan::GetSessionID'
+    Require 'ExecuteClearDroppedItems' 'ZDOMan::DestroyZDO'
+    Require 'ExecuteKickPlayer' 'ZNet::Kick'
+    Require 'ExecuteBanPlayer' 'ZNet::Ban'
+    Require 'ExecuteUnbanPlayer' 'ZNet::Unban'
+    Require 'WriteAdminPlayerPage' 'ValheimSpawnerPlugin::GetOnlineAdminPlayers'
+    Require 'GetOnlineAdminPlayers' 'ZNet::GetPeers'
+    Require 'ExecuteTeleportPlayerHere' 'ValheimSpawnerPlugin::SendTargetCommand'
+    Require 'ExecuteFreezePlayer' 'ValheimSpawnerPlugin::SendTargetCommand'
+    Require 'ReceiveTargetCommand' 'ZNet::GetServerPeer'
+    Require 'SendTargetCommand' 'ZRpc::Invoke'
+    Require 'TickTimedBans' 'ZNet::Unban'
+    Require 'TickPlayerReturnPrompt' 'GUIManager::CreateWoodpanel'
+    Require 'BlockBooleanInputPrefix' 'ValheimSpawnerPlugin::ShouldAllowHudInventoryInput'
+    Require 'ShouldAllowHudInventoryInput' 'ValheimSpawnerPlugin::NativeInventoryIsVisible'
+    Require 'BlockMouseScrollWheelPrefix' 'ValheimSpawnerPlugin::NativeInventoryIsVisible'
+    Require 'LateUpdate' 'Transform::SetAsLastSibling'
+    Require 'FrozenWalkingPrefix' 'Character::SetMoveDir'
+    Require 'FrozenJumpPrefix' 'ValheimSpawnerPlugin::IsNexusFrozen'
+    Require 'FrozenDodgePrefix' 'ValheimSpawnerPlugin::IsNexusFrozen'
+    RequireFileSource $playerSource 'timed bans are bounded to one year and persisted on the server' 'MaxTimedBanHours = 8760[\s\S]*?Config\.Bind\(scope, "TimedBans"[\s\S]*?SaveTimedBans'
+    RequireFileSource $networkSource 'non-admin players can only request their own return point' 'else if \(kind == AdminAction\.PlayerReturn \|\| kind == AdminAction\.PlayerReturnDismiss\)[\s\S]*?connected\.m_uid[\s\S]*?ExecuteServerAction'
+    RequireFileSource $playerSource 'frozen state expires when a player disconnects' 'PruneDisconnectedFrozenPlayers[\s\S]*?_serverFrozenPlayers\.RemoveWhere'
+    RequireFileSource $adminSource 'carry weight is scoped to world and character' 'Config\.Bind\(scope, "CarryWeight"'
+    RequireFileSource $networkSource 'network action list is routed through ExecuteServerAction after admin check' 'else if \(granted\)[\s\S]*?ExecuteServerAction\(kind'
     Require 'ApplyFlightState' 'Player::ToggleDebugFly'
     $serverCode = Code 'ExecuteServerAction'
     if ($serverCode -match 'SpawnObject|InvokeRoutedRPC') { throw 'World creation must not broadcast another instantiate' }

@@ -7,7 +7,7 @@ namespace SuperNova.ValheimSpawner
 {
     public sealed partial class ValheimSpawnerPlugin
     {
-        private const string CleanupOwnerRpc = "SN_Nexus_CleanupOwner180";
+        private const string CleanupOwnerRpc = "SN_Nexus_CleanupOwner185";
 
         private bool ExecuteCleanup(ZPackage packet, Vector3 origin, out string message)
         {
@@ -112,6 +112,13 @@ namespace SuperNova.ValheimSpawner
 
         private string FormatServerMessage(string message)
         {
+            if (message.StartsWith("ground-items|", StringComparison.Ordinal))
+            {
+                string[] drops = message.Split('|');
+                if (drops.Length == 3 && int.TryParse(drops[1], out int queued) && int.TryParse(drops[2], out int failed))
+                    return T("Removal queued for dropped items: ", "Поставлено в очередь удаление выброшенных предметов: ") + queued +
+                        (failed > 0 ? T(". Failed: ", ". Не удалось удалить: ") + failed : string.Empty);
+            }
             if (message == "locations-generating") return T("World locations are still generating. Try refreshing in a moment.",
                 "Локации мира ещё генерируются. Попробуйте обновить список чуть позже.");
             if (message == "busy") return T("Too many commands; try again in a moment.", "Слишком частые команды; повторите через мгновение.");

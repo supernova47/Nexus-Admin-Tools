@@ -101,6 +101,10 @@ namespace SuperNova.ValheimSpawner
                 LoadTeleportLocations(_savedTeleportLocations.Value);
                 _lastAppliedWeather = null;
                 _adminReturnPositions.Clear();
+                _serverFrozenPlayers.Clear();
+                _targetLocalFrozen = false;
+                _playerReturnAvailable = _returnAvailable = false;
+                DestroyPlayerReturnPrompt();
                 ApplyRaidSuppression();
             }
             if (!_auditLoaded)

@@ -50,7 +50,7 @@ internal static class Program
         Check(AdminRules.LocationName("", "Bonemass") == "Bonemass" &&
             AdminRules.LocationName("$location_bonemass", "Bonemass") == "$location_bonemass",
             "Missing location display name falls back to its prefab");
-        Check(AdminRules.Protocol == 181, "Location management uses a new client/server protocol");
+        Check(AdminRules.Protocol == 185, "Admin player commands use the current client/server protocol");
         Check(AdminRules.LocationNameInput("  Home  ", false) && AdminRules.LocationNameInput("", true) &&
             !AdminRules.LocationNameInput("", false) && !AdminRules.LocationNameInput(new string('x', 49), false) &&
             !AdminRules.LocationNameInput("Bad\nName", false), "Teleport labels enforce length and safe text rules");

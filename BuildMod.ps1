@@ -110,6 +110,8 @@ New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
 Copy-Item $dll (Join-Path $pluginDir 'ValheimSpawner.dll') -Force
 Copy-Item (Join-Path $root 'manifest.json') (Join-Path $packageRoot 'manifest.json') -Force
 Copy-Item (Join-Path $root 'README.md') (Join-Path $packageRoot 'README.md') -Force
+Copy-Item (Join-Path $root 'changelog.md') (Join-Path $packageRoot 'changelog.md') -Force
+Copy-Item (Join-Path $root 'LICENSE') (Join-Path $packageRoot 'LICENSE') -Force
 Copy-Item (Join-Path $root 'icon.png') (Join-Path $packageRoot 'icon.png') -Force
 $zip = Join-Path $dist ("Nexus-Admin-Tools-Thunderstore-$version.zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
